@@ -1,4 +1,5 @@
 import random
+import sys
 from enum import Enum
 
 from matcher import Mentor, Preference, Slot, get_matches
@@ -243,7 +244,10 @@ def load_num_sections(filename: str, sheet_name: str):
 
 
 def run_matcher(
-    preferences_file: str, preference_worksheet_name: str, count_worksheet_name: str
+    preferences_file: str,
+    preference_worksheet_name: str,
+    count_worksheet_name: str,
+    format: str = "table",
 ):
     """
     Run the matcher on a given preferences file, worksheet name, and section count worksheet name.
@@ -254,6 +258,8 @@ def run_matcher(
         Used to fetch the preferences for each TA.
     `count_worksheet_name`:
         Used to fetch the section count for each TA.
+    `format`:
+        Output format for the assignments.
     """
     slot_id_to_info, preference_map = load_excel(
         preferences_file, preference_worksheet_name
@@ -291,8 +297,10 @@ def run_matcher(
     cost = result["cost"]
     assignments = result["assignments"]
     unmatched = result["unmatched"]
+    print("---")
     print("cost", cost)
     print("unmatched", unmatched)
+    print("---\n")
 
     assigned_by_slot = {}
 
@@ -314,21 +322,28 @@ def run_matcher(
         table_rows.append([name, *formatted_discussions])
 
     # name column, followed by assigned slots
-    table_by_ta = Table("Name", "Assigned", box=box.SIMPLE)
     num_columns = max(len(row) for row in table_rows)
-    for _ in range(num_columns - 2):
-        table_by_ta.add_column()
+    if format == "table":
+        table_by_ta = Table("Name", "Assigned", box=box.SIMPLE)
+        for _ in range(num_columns - 2):
+            table_by_ta.add_column()
 
-    for table_row in table_rows:
-        if len(table_row) != num_columns:
-            table_row = [*table_row, *([""] * (num_columns - len(table_row)))]
-        table_by_ta.add_row(*table_row)
-    console.print(table_by_ta)
+        for table_row in table_rows:
+            if len(table_row) != num_columns:
+                table_row = [*table_row, *([""] * (num_columns - len(table_row)))]
+            table_by_ta.add_row(*table_row)
+        console.print(table_by_ta)
+    elif format == "csv":
+        for table_row in table_rows:
+            console.print(",".join(table_row + [""] * (num_columns - len(table_row))))
+
+    # spacing between tables
+    print("\n")
 
     # print table by slot
     table_rows = []
     for row, discussion_info in slot_id_to_info.items():
-        tas = sorted(assigned_by_slot[row])
+        tas = sorted(assigned_by_slot.get(row, []))
 
         colored_tas = []
         for name in tas:
@@ -345,16 +360,20 @@ def run_matcher(
         )
 
     # location, day, time columns followed by assigned TAs
-    table_by_slot = Table("Location", "Day", "Time", "Assigned", box=box.SIMPLE)
     num_columns = max(len(row) for row in table_rows)
-    for _ in range(num_columns - 4):
-        table_by_ta.add_column()
+    if format == "table":
+        table_by_slot = Table("Location", "Day", "Time", "Assigned", box=box.SIMPLE)
+        for _ in range(num_columns - 4):
+            table_by_ta.add_column()
 
-    for table_row in table_rows:
-        if len(table_row) != num_columns:
-            table_row = [*table_row, *([""] * (num_columns - len(table_row)))]
-        table_by_slot.add_row(*table_row)
-    console.print(table_by_slot)
+        for table_row in table_rows:
+            if len(table_row) != num_columns:
+                table_row = [*table_row, *([""] * (num_columns - len(table_row)))]
+            table_by_slot.add_row(*table_row)
+        console.print(table_by_slot)
+    elif format == "csv":
+        for table_row in table_rows:
+            console.print(",".join(table_row + [""] * (num_columns - len(table_row))))
 
 
 if __name__ == "__main__":
@@ -365,16 +384,30 @@ if __name__ == "__main__":
     group.add_argument("--section", action="store_true", help="Match sections")
     group.add_argument("--oh", action="store_true", help="Match OH")
     parser.add_argument("--seed", "-s", help="Random seed")
+    parser.add_argument(
+        "--format", choices=["table", "csv"], default="table", help="Output format"
+    )
     args = parser.parse_args()
 
     if args.seed:
         random.seed(args.seed)
+        print("seed", args.seed)
+    else:
+        seed = random.randint(0, sys.maxsize)
+        random.seed(seed)
+        print("seed", seed)
 
     if args.section:
         run_matcher(
             SECTION_PREFERENCES_FILE,
             SECTION_WORKSHEET_NAME,
             SECTION_COUNT_WORKSHEET_NAME,
+            format=args.format,
         )
     elif args.oh:
-        run_matcher(OH_PREFERENCES_FILE, OH_WORKSHEET_NAME, OH_COUNT_WORKSHEET_NAME)
+        run_matcher(
+            OH_PREFERENCES_FILE,
+            OH_WORKSHEET_NAME,
+            OH_COUNT_WORKSHEET_NAME,
+            format=args.format,
+        )

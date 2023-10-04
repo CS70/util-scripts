@@ -19,7 +19,7 @@ ASSOC_SECTION_URL = (
 console = Console(theme=Theme({"repr.number": ""}))
 
 
-def main(url: str, format: str):
+def main(url: str, format: str, include_capacity=False):
     # fetch page
     options = ChromeOptions()
     options.add_argument("--headless=new")
@@ -62,6 +62,8 @@ def main(url: str, format: str):
         formatted_start = meeting_start.strftime("%-I%p")
         formatted_end = meeting_end.strftime("%-I%p")
 
+        enrollment_count = section["enrollmentStatus"]["maxEnroll"]
+
         if meeting_days not in lines_by_time:
             lines_by_time[meeting_days] = {}
         if meeting_start not in lines_by_time[meeting_days]:
@@ -72,6 +74,8 @@ def main(url: str, format: str):
                 f"{section_number},{meeting_location},{meeting_days},"
                 f"{formatted_start}-{formatted_end}"
             )
+            if include_capacity:
+                line += f",{enrollment_count}"
         elif format == "table":
             line = [
                 section_number,
@@ -80,6 +84,8 @@ def main(url: str, format: str):
                 formatted_start,
                 formatted_end,
             ]
+            if include_capacity:
+                line.append(str(enrollment_count))
 
         lines_by_time[meeting_days][meeting_start].append(line)
         # should be unique by ID
@@ -97,12 +103,17 @@ def main(url: str, format: str):
         for section_number in sorted(lines_by_id):
             console.print(lines_by_id[section_number])
     elif format == "table":
-        table_by_time = Table(
+        columns = [
             "ID",
             "Location",
             "Days",
             "Start Time",
             "End Time",
+        ]
+        if include_capacity:
+            columns.append("Capacity")
+        table_by_time = Table(
+            *columns,
             box=box.SIMPLE,
             title="Sorted by time",
         )
@@ -113,11 +124,7 @@ def main(url: str, format: str):
         console.print(table_by_time)
 
         table_by_id = Table(
-            "ID",
-            "Location",
-            "Days",
-            "Start Time",
-            "End Time",
+            *columns,
             box=box.SIMPLE,
             title="Sorted by ID",
         )
@@ -131,6 +138,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("url", help="URL for the course page on classes.berkeley.edu")
+    parser.add_argument("--capacity", help="Include section capacity in the output")
     parser.add_argument(
         "--format", choices=["csv", "table"], default="table", help="Output format"
     )
