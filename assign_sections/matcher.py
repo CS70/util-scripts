@@ -278,7 +278,7 @@ def get_matches(
     # for each collision, run another round of min-cost max-flow
     for collision in collisions.values():
         collision_in_flow = sum(collision["in_flow"].values())
-        collision_min_mentors = sum(slot.min_mentors for mentor in collision["slots"])
+        collision_min_mentors = sum(slot.min_mentors for slot in collision["slots"])
 
         collision_graph = nx.DiGraph()
         collision_graph.add_node(
