@@ -28,7 +28,7 @@
  * received.
  */
 function score() {
-    const ANS_MASK = [0, 1, 0];
+    const ANS_MASK = []; // EDIT THIS LIST
 
     const checkboxes = Array.from(document.querySelectorAll("[id^='question_'] input[type='checkbox']"))
     const marked = checkboxes.map((e) => e.checked);
