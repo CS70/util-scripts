@@ -18,7 +18,7 @@ ROOM_CAPACITY_COLUMN = "Capacity"
 PREFIX_LENGTH = 1
 
 
-def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg"):
+def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg", limit: int = -1):
     """
     Partition a list of students into rooms based on alphabetical order by last name,
     without exceeding the room capacities.
@@ -123,13 +123,27 @@ def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg")
             # haven't found anything; add 1 to all capacities
             extra_capacity += 1
 
-    print(f"Solutions with {extra_capacity} extra capacity:\n")
+    if extra_capacity == 0:
+        print(f"{len(solutions)} solutions:\n")
+    else:
+        # if extra capacity is needed, say so
+        print(f"{len(solutions)} solutions requiring {extra_capacity} extra capacity:\n")
+
     if sort == "avg":
         # sort solutions by avg fullness then by max fullness
         solutions.sort(key=lambda x: (x[0], x[1]))
+    elif sort == "-avg":
+        solutions.sort(key=lambda x: (x[0], x[1]), reverse=True)
     elif sort == "max":
         solutions.sort(key=lambda x: (x[1], x[0]))
-    for avg_fullness, max_fullness, filled_rooms, room_ranges in solutions:
+    elif sort == "-max":
+        solutions.sort(key=lambda x: (x[1], x[0]), reverse=True)
+
+    # apply limit to the number of solutions to print
+    if limit == -1:
+        limit = len(solutions)
+
+    for avg_fullness, max_fullness, filled_rooms, room_ranges in solutions[:limit]:
         print(f"avg: {avg_fullness:.4f}, max: {max_fullness:.4f}")
         for room, room_range in room_ranges.items():
             print(
@@ -159,12 +173,19 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--sort",
-        choices=["avg", "max"],
+        choices=["avg", "max", "-avg", "-max"],
         default="avg",
         help=(
             "Sort order of output; 'avg' sorts by average fullness first,"
-            " 'max' sorts by max fullness first (default: avg)"
+            " 'max' sorts by max fullness first. Prepending a '-' reverses the order."
+            "(default: avg)"
         ),
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=-1,
+        help="Number of solutions to print out; -1 to print all options. (default: -1)",
+    )
     args = parser.parse_args()
-    main(args.students, args.rooms, scale=args.scale, sort=args.sort)
+    main(args.students, args.rooms, scale=args.scale, sort=args.sort, limit=args.limit)
