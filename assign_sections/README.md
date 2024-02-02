@@ -12,7 +12,7 @@ For section and OH matching, the columns should have the following headers:
     Location | Day | Time | Min Count | Max Count | <Name> | <Name> | <Name> | ...
 ```
 
-The "<Name>" columns should be filled in with the staff member's name.
+The "\<Name>" columns should be filled in with the staff member's name.
 Each person's column should be completely filled with colors; in particular, the default
 red (#FF0000), orange (#FF9900), yellow (#FFFF00), and green (#00FF00)in Google sheets.
 
@@ -26,7 +26,7 @@ For section and OH counts, the columns should have the following headers:
     Name | Min Count | Max Count
 ```
 
-All of the header values must be _exactly_ as they are here, otherwise the program will error.
+All of the header values must be _exactly_ as they are here (case-sensitive, with no leading or trailing whitespace), otherwise the program will error and/or not provide valid matchings.
 
 ### CLI
 
