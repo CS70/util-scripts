@@ -18,7 +18,14 @@ ROOM_CAPACITY_COLUMN = "Capacity"
 PREFIX_LENGTH = 1
 
 
-def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg", limit: int = -1):
+def main(
+    csv_file: str,
+    capacity_file: str,
+    scale: float = 1,
+    sort: str = "avg",
+    limit: int = -1,
+    no_single_prefix: bool = False,
+):
     """
     Partition a list of students into rooms based on alphabetical order by last name,
     without exceeding the room capacities.
@@ -58,13 +65,17 @@ def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg",
 
     solutions = []
     extra_capacity = 0
+    all_rooms = list(capacities.keys())
 
     while not solutions:
         # brute force all possible orderings of rooms
-        for room_order in permutations(capacities.keys()):
-            filled_rooms = {room: 0 for room in room_order}
+        rooms_to_permute = [room for room, capacity in capacities.items() if capacity > 0]
+        empty_rooms = [room for room, capacity in capacities.items() if capacity == 0]
+        for room_order in permutations(rooms_to_permute):
+            filled_rooms = {room: 0 for room in all_rooms}
             room_ranges: dict[str, dict[str, Union[str, None]]] = {
-                room: {"start": None, "end": None} for room in room_order
+                # put empty rooms at the end, keep other room order
+                room: {"start": None, "end": None} for room in [*room_order, *empty_rooms]
             }
             cur_room_idx = 0
             # set first room start
@@ -105,13 +116,29 @@ def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg",
             else:
                 # if we didn't break, we found a valid ordering
 
+                # check for no_single_prefix
+                if no_single_prefix:
+                    has_single_prefix_room = False
+                    for room in room_order:
+                        if room_ranges[room]["start"] == room_ranges[room]["end"]:
+                            has_single_prefix_room = True
+                            break
+
+                    if has_single_prefix_room:
+                        # don't use this solution
+                        continue
+
                 # get average fullness
                 avg_fullness = sum(
-                    filled_rooms[room] / capacities[room] for room in room_order
+                    filled_rooms[room] / capacities[room]
+                    for room in room_order
+                    if capacities[room] > 0
                 ) / len(room_order)
                 # get max fullness
                 max_fullness = max(
-                    filled_rooms[room] / capacities[room] for room in room_order
+                    filled_rooms[room] / capacities[room]
+                    for room in room_order
+                    if capacities[room] > 0
                 )
 
                 # add solution
@@ -127,7 +154,9 @@ def main(csv_file: str, capacity_file: str, scale: float = 1, sort: str = "avg",
         print(f"{len(solutions)} solutions:\n")
     else:
         # if extra capacity is needed, say so
-        print(f"{len(solutions)} solutions requiring {extra_capacity} extra capacity:\n")
+        print(
+            f"{len(solutions)} solutions requiring {extra_capacity} extra capacity:\n"
+        )
 
     if sort == "avg":
         # sort solutions by avg fullness then by max fullness
@@ -187,5 +216,17 @@ if __name__ == "__main__":
         default=-1,
         help="Number of solutions to print out; -1 to print all options. (default: -1)",
     )
+    parser.add_argument(
+        "--no-single-prefix",
+        action="store_true",
+        help="If given, start and end prefixes for a given room cannot be the same.",
+    )
     args = parser.parse_args()
-    main(args.students, args.rooms, scale=args.scale, sort=args.sort, limit=args.limit)
+    main(
+        args.students,
+        args.rooms,
+        scale=args.scale,
+        sort=args.sort,
+        limit=args.limit,
+        no_single_prefix=args.no_single_prefix,
+    )
