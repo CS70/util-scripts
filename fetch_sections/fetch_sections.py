@@ -72,7 +72,7 @@ def main(url: str, format: str, include_capacity=False):
         if format == "csv":
             line = (
                 f"{section_number},{meeting_location},{meeting_days},"
-                f"{formatted_start}-{formatted_end}"
+                f"{formatted_start},{formatted_end}"
             )
             if include_capacity:
                 line += f",{enrollment_count}"
