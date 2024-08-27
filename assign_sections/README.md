@@ -97,6 +97,32 @@ An additional (optional) matcher configuration JSON file can be given as well, w
 
   The default value is `False`.
 
+- `maximize_filled_slots_weight` (`float`): Weight given to the term added when `maximize_filled_slots` is `True`. This is usually a big value, to ensure that the option has a large impact.
+
+  The default value is `1000`.
+
+- `consecutive_bonus` (`bool`): Whether to include a bonus when assigning a user to slots that are consecutive (back to back).
+
+  The default value is `True`.
+
+- `consecutive_bonus_weight` (`float`): Weight given to the term added when `consecutive_bonus` is `True`.
+
+  The default value is `0.75`.
+
+- `global_consecutive_bonus` (`null`, `"section"`, `"oh"`, or `"all"`): Whether to include a bonus for assignments to consecutive slots, regardless of the user.
+
+  The default value is `"oh"`.
+
+- `global_consecutive_bonus_weight` (`float`): Weight given to the term added when `global_consecutive_bonus` is not `null`.
+
+- `same_time_bonus` (`bool`): Whether to include a bonus when assigning a user to slots that are on different days but at the same time.
+
+  The default value is `True`.
+
+- `same_time_bonus_weight` (`float`): Weight given to the term added when `same_time_bonus` is `True`. This is usually a small value in comparison to `consecutive_bonus_weight`, since this preference is not very common, and can sometimes make assignments worse.
+
+  The default value is `0.1`.
+
 ### Running the matcher
 
 With the input files, the matching algorithm can be run using the following command:
@@ -139,8 +165,6 @@ $$\max_x \alpha f_{\text{section}} + (1 - \alpha) f_{\text{OH}}$$
 where $\alpha$ is a term balancing between matching section slots and matching OH slots. By default, $\alpha = 0.75$, to encourage better matching for section slots compared to OH slots, if a compromise must be made.
 
 Here, $f_{\text{section}}$ and $f_{\text{OH}}$ are defined similar to each other, as $f = \sum_{u,s} p_{u,s} x_{u,s}$. In the summation, $p_{u,s}$ is the preference of user $u$ to slot $s$, and $x_{u,s}$ is whether user $u$ is actually assigned to slot $s$.
-
-If `maximize_filled_slots` is set to `True`, then an additional term is added to the objective: $\lambda \sum_{u,s} x_{u,s}$, where $\lambda$ is a parameter (set to 1000 by default) tuning the influence of the term.
 
 The constraints for the optimization problem fall under a few categories:
 
@@ -187,3 +211,53 @@ The constraints for the optimization problem fall under a few categories:
   Here, we want to ensure that a discussion assignment for a given user rules out an OH assignment for the same time, since a given person cannot be in two places at the same time.
 
 All of the above constraints are duplicated for both section slots and OH slots, if both are provided. (Except for the last, as it involves interactions across section slots and OH slots.)
+
+### Options
+
+There are a few options for the matcher that cause some modifications to the objective and constraints of the optimization problem.
+
+#### Maximize filled slots
+
+If `maximize_filled_slots` is set to `True`, then an additional term is added to the objective: $\lambda_1 \sum_{u,s} x_{u,s}$, where $\lambda_1$ is a constant tuning the influence of the term (set to a large number by default, to ensure that this has a large impact if used).
+
+Generally, this is not necessary, since including another assignment will usually only increase the objective function value if nothing else changes. This is why the default value ofr `maximize_filled_slots` is `False`. However, in some cases, including another assignment results in the reshuffling of other assignments, which can lead to an overall worse objective value. In these situations, this option can help ensure that the assignment is maximal, despite taking a small hit in optimality.
+
+#### Consecutive bonus
+
+Typically, users prefer having discussion sections or OH slots back to back, rather than with a large gap in between. As such, if `consecutive_bonus` is `True`, a bonus will be applied to the objective function for every back to back assignment.
+
+Concretely, for every pair of slots $(s_1, s_2)$ that is detected as consecutive (i.e. one starts just as another ends, with a default of a 1 minute tolerance), another term is added to the objective: $\lambda_2 \sum_u \mathrm{AND}(x_{u,s_1}, x_{u,s_2})$, where $\lambda_2$ is a constant tuning the magnitude of this bonus.
+
+However, we must implement this `AND` operator in a linear fashion---a naive solution would simply be to use the product $x_{u,s_1} x_{u,s_2}$, but the optimizer fails on this nonlinear term.
+
+To remedy this, we can fairly easily linearize the binary `AND` operator; introducing a new binary variable $y_{u,s_1,s_2}$, we can add constraints such that:
+
+$$\begin{align*}
+y_{u,s_1,s_2} &\le x_{u,s_1} \\
+y_{u,s_1,s_2} &\le x_{u,s_2} \\
+y_{u,s_1,s_2} &\ge x_{u,s_1} + x_{u,s_2} - 1
+\end{align*}$$
+
+Now, $y_{u,s_1,s_2}$ can be used to implement $\mathrm{AND}(x_{u,s_1}, x_{u,s_2})$.
+
+#### Global consecutive bonus
+
+A similar bonus can be applied at the global level, where we provide a bonus for every pair of slots that are consecutive between users. This essentially encourages the assignments to "bunch together" into blocks, which is a situation that is usually preferred when scheduling OH slots.
+
+The `global_consecutive_bonus` variable can take on four values: `null` (or `None` in Python), `section`, `oh`, or `all`. This allows for better fine-tuning as to which assignments this bonus should apply to.
+
+The implementation is very similar to the consecutive bonus, but with an additional layer to account for assignments across different users. Concretely, for every pair of slots $(s_1, s_2)$ that is detected as consecutive, the following term is added to the objective: $\lambda_3 \mathrm{AND}(\mathrm{OR}_u(x_{u,s_1}), \mathrm{OR}_u(x_{u,s_2}))$, where $\lambda_3$ is the constant tuning the magnitude of this bonus. In particular, we first aggregate across users to see which slots are actually assigned to, and take an `AND` across consecutive slots.
+
+The implementation of `AND` is exactly the same as before; we have a similar implemtnation of the `OR` operator across multiple variables, introducing a new binary variable $z_s$ (representing the `OR` across all users for slot $s$) such that $z_s \ge x_{u,s}$ for all $u$.
+
+In practice, this has only shown to make small differences in the results, even with a large weight, so the default is kept relatively low to ensure that this is mainly used for tie-breaking.
+
+#### Same time bonus
+
+Similar to the consecutiive bonus, users can sometimes prefer having slots at the same times if forced to be on different days. As such, if `same_time_bonus` is `True`, a small bonus will be applied to the objective function for every time a user is assigned to slots that occur on different days, but at the same time on each of those days.
+
+However, this preference is less common compared to the preference of consecutive slots, especially with the nonuniformity of a typical person's schedule---as such, the weight on this bonus is significantly smaller than the consecutive bonus, usually just used to break ties.
+
+The implementation is very similar to the consecutive bonus. Concretely, for every pair of slots $(s_1, s_2)$ that is detected to occur on different days but at the same time (with some tolerance, defaulted to 1 minute), another term is added to the objective: $\lambda_4 \sum_u \mathrm{AND}(x_{u,s_1}, x_{u,s_2})$, where $\lambda_3$ is the constant tuning the magnitude of this bonus (set to a small number by default).
+
+Similar to the consecutive bonus term, we must use a linear implementation of `AND`, so we use an auxiliary binary variable with some extra constraints, in exactly the same fashion as before.

@@ -3,12 +3,12 @@ import datetime
 import json
 import os
 import random
-import sys
 from enum import StrEnum
 from string import ascii_uppercase
 
 import matplotlib
 import matplotlib.colors
+import numpy as np
 from rich.console import Console
 from rich.table import Table, box
 from rich.theme import Theme
@@ -67,13 +67,6 @@ class ConfigKeys:
     # subkeys under USERS
     MIN_SLOTS = "min_slots"
     MAX_SLOTS = "max_slots"
-
-
-class MatcherConfigKeys:
-    """Keys for the matcher config file."""
-
-    SECTION_BIAS = "section_bias"
-    MAXIMIZE_FILLED_SLOTS = "maximize_filled_slots"
 
 
 class PrintFormat(StrEnum):
@@ -191,17 +184,7 @@ def parse_matcher_config(config_file: str):
     with open(config_file, "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    # start with defaults
-    matcher_config = MatcherConfig()
-    if MatcherConfigKeys.SECTION_BIAS in config:
-        matcher_config.section_bias = float(config[MatcherConfigKeys.SECTION_BIAS])
-        assert 0 <= matcher_config.section_bias <= 1
-    if MatcherConfigKeys.MAXIMIZE_FILLED_SLOTS in config:
-        matcher_config.maximize_filled_slots = bool(
-            config[MatcherConfigKeys.MAXIMIZE_FILLED_SLOTS]
-        )
-
-    return matcher_config
+    return MatcherConfig.from_dict(config)
 
 
 def parse_time(time_str: str):
@@ -281,17 +264,19 @@ def format_days(day_list: list[int]):
 
 def print_assignment_by_user(
     assignment: dict[str, list[Slot]],
+    users: list[User],
     preference_map: dict[str, dict[str, int]],
     title: str = "",
     print_format: PrintFormat = PrintFormat.TABLE,
     print_colors: PrintColors = PrintColors.DISCRETE,
+    print_empty: bool = False,
 ):
     """
     Given a map from user_id (name) to the list of assigned slots,
     prints the slots assigned to each user.
     """
-    # sort assignments by user_id (name)
-    sorted_assignments = sorted(assignment.items(), key=lambda t: t[0])
+    # sort users by user_id (name)
+    sorted_users = sorted(users, key=lambda u: u.name)
 
     # min and max preferences
     min_pref = min(
@@ -302,7 +287,12 @@ def print_assignment_by_user(
     )
 
     table_rows = []
-    for name, assigned_slots in sorted_assignments:
+    for user in sorted_users:
+        assigned_slots = assignment.get(user.name, [])
+        if not print_empty and not assigned_slots:
+            # skip if we don't want to print empty assignments
+            continue
+
         formatted_discussions = []
 
         # sort slots by first start time
@@ -313,13 +303,13 @@ def print_assignment_by_user(
 
         for slot in sorted_slots:
             disc_str = format_slot(slot)
-            pref = preference_map[name][slot.id]
+            pref = preference_map[user.name][slot.id]
             pref_color = compute_color(
                 pref, min_pref, max_pref, print_colors=print_colors
             )
             formatted_discussions.append(f"[{pref_color}]{disc_str}[/{pref_color}]")
 
-        table_rows.append([name, *formatted_discussions])
+        table_rows.append([user.name, *formatted_discussions])
 
     # name column, followed by assigned slots
     num_columns = max(len(row) for row in table_rows)
@@ -342,10 +332,12 @@ def print_assignment_by_user(
 
 def print_assignment_by_slot(
     assignment: dict[str, list[Slot]],
+    slots: list[Slot],
     preference_map: dict[str, dict[str, int]],
     title: str = "",
     print_format: PrintFormat = PrintFormat.TABLE,
     print_colors: PrintColors = PrintColors.DISCRETE,
+    print_empty: bool = False,
 ):
     """
     Given a map from user_id (name) to the list of assigned slots,
@@ -359,7 +351,6 @@ def print_assignment_by_slot(
         pref for user_pref in preference_map.values() for pref in user_pref.values()
     )
 
-    slots_by_id: dict[str, Slot] = {}
     users_per_slot: dict[str, set[str]] = {}
     for name, assigned_slots in assignment.items():
         for slot in assigned_slots:
@@ -367,18 +358,23 @@ def print_assignment_by_slot(
                 users_per_slot[slot.id] = set()
             users_per_slot[slot.id].add(name)
 
-            if slot.id not in slots_by_id:
-                slots_by_id[slot.id] = slot
-
-    table_rows = []
-
+    # precompute map from ID to slot
+    slots_by_id: dict[str, Slot] = {slot.id: slot for slot in slots}
     sorted_slots = sorted(
         slots_by_id.items(),
-        key=lambda t: compute_slot_datetime(min(t[1].days), t[1].start_time),
+        key=lambda t: (
+            compute_slot_datetime(min(t[1].days), t[1].start_time),
+            t[1].location,
+        ),
     )
 
+    table_rows = []
     for slot_id, slot in sorted_slots:
-        sorted_names = sorted(users_per_slot[slot_id])
+        sorted_names = sorted(users_per_slot.get(slot_id, []))
+        if not print_empty and not sorted_names:
+            # skip if we don't want to print empty assignments
+            continue
+
         slot = slots_by_id[slot_id]
 
         colored_names = []
@@ -434,6 +430,7 @@ def run_matcher(
     verbose: bool = False,
     print_format: PrintFormat = PrintFormat.TABLE,
     print_colors: PrintColors = PrintColors.DISCRETE,
+    print_empty: bool = False,
 ):
     """
     Run the matcher for discussions and OH on a given set of preference and config files.
@@ -477,11 +474,11 @@ def run_matcher(
     if section_preference_map:
         assert set(section_counts.keys()) == set(
             section_preference_map.keys()
-        ), "Config and preference files should share the same user names"
-    elif oh_preference_map:
+        ), "Section config and preference files should share the same user names"
+    if oh_preference_map:
         assert set(oh_counts.keys()) == set(
             oh_preference_map.keys()
-        ), "Config and preference files should share the same user names"
+        ), "OH config and preference files should share the same user names"
 
     # format input values
     section_users = [
@@ -539,10 +536,20 @@ def run_matcher(
         for slot_id, value in preferences.items()
     ]
 
+    # sort then shuffle, to avoid any discrepancies
+    section_users.sort(key=lambda u: u.id)
+    section_slots.sort(key=lambda s: s.id)
+    section_preferences.sort(key=lambda p: (p.user_id, p.slot_id))
+    oh_users.sort(key=lambda u: u.id)
+    oh_slots.sort(key=lambda s: s.id)
+    oh_preferences.sort(key=lambda p: (p.user_id, p.slot_id))
+
     random.shuffle(section_users)
     random.shuffle(section_slots)
+    random.shuffle(section_preferences)
     random.shuffle(oh_users)
     random.shuffle(oh_slots)
+    random.shuffle(oh_preferences)
 
     result = get_matches(
         section_users,
@@ -561,20 +568,24 @@ def run_matcher(
     if result.section_assignment:
         print_assignment_by_user(
             result.section_assignment,
+            section_users,
             section_preference_map,
             title="Discussions",
             print_format=print_format,
             print_colors=print_colors,
+            print_empty=print_empty,
         )
     if result.section_assignment and result.oh_assignment:
         print("\n")
     if result.oh_assignment:
         print_assignment_by_user(
             result.oh_assignment,
+            oh_users,
             oh_preference_map,
             title="OH",
             print_format=print_format,
             print_colors=print_colors,
+            print_empty=print_empty,
         )
 
     # spacing between ways of printing
@@ -583,20 +594,24 @@ def run_matcher(
     if result.section_assignment:
         print_assignment_by_slot(
             result.section_assignment,
+            section_slots,
             section_preference_map,
             title="Discussions",
             print_format=print_format,
             print_colors=print_colors,
+            print_empty=print_empty,
         )
     if result.section_assignment and result.oh_assignment:
         print("\n")
     if result.oh_assignment:
         print_assignment_by_slot(
             result.oh_assignment,
+            oh_slots,
             oh_preference_map,
             title="OH",
             print_format=print_format,
             print_colors=print_colors,
+            print_empty=print_empty,
         )
 
 
@@ -635,17 +650,24 @@ if __name__ == "__main__":
         help="Print color format; use 'discrete' if choosing from (0, 1, 3, 5), and 'gradient' otherwise.",
     )
     options_group.add_argument(
+        "--show-empty",
+        action="store_true",
+        help="Show slots in the resulting output even if they are not assigned to anything.",
+    )
+    options_group.add_argument(
         "--matcher-config", help="Config file for running the matcher", default=""
     )
 
     args = parser.parse_args()
 
     if args.seed:
-        random.seed(args.seed)
+        random.seed(int(args.seed))
+        np.random.seed(int(args.seed))
         print("seed", args.seed)
     else:
-        seed = random.randint(0, sys.maxsize)
+        seed = random.randint(0, 2**16)
         random.seed(seed)
+        np.random.seed(args.seed)
         print("seed", seed)
 
     run_matcher(
@@ -657,4 +679,5 @@ if __name__ == "__main__":
         verbose=args.verbose,
         print_format=args.format,
         print_colors=args.colors,
+        print_empty=args.show_empty,
     )

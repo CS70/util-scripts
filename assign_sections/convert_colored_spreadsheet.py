@@ -226,8 +226,11 @@ def load_excel(
             pref = COLOR_MAP[pref_col]
             user_preferences[slot_id] = pref
 
-        # col[0] is the header containing the TA name
-        preferences[col[0].value] = user_preferences
+        user_name = col[0].value
+        assert user_name is not None
+        user_name = str(user_name).strip()
+
+        preferences[user_name] = user_preferences
 
     return discussions, preferences
 
@@ -279,6 +282,9 @@ def load_num_sections(filename: str, sheet_name: str) -> SectionCountMap:
 
         # get cell values; subtracting 1 since Excel is 1-indexed
         name = row[column_map[SlotCountHeader.NAME] - 1].value
+        assert name is not None
+        name = str(name).strip()
+
         min_count = int(row[column_map[SlotCountHeader.MIN_COUNT] - 1].value)
         max_count = int(row[column_map[SlotCountHeader.MAX_COUNT] - 1].value)
 
