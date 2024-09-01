@@ -4,7 +4,6 @@
    having no "None of the above" answer choices and fixing the grading logic accordingly
 */
 
-
 // Copy paste this first into inspect element console.
 
 /*
@@ -28,25 +27,27 @@
  * received.
  */
 function score() {
-    const ANS_MASK = []; // EDIT THIS LIST
+  const ANS_MASK = []; // EDIT THIS LIST
 
-    const checkboxes = Array.from(document.querySelectorAll("[id^='question_'] input[type='checkbox']"))
-    const marked = checkboxes.map((e) => e.checked);
+  const checkboxes = Array.from(
+    document.querySelectorAll("[id^='question_'] input[type='checkbox']"),
+  );
+  const marked = checkboxes.map((e) => e.checked);
 
-    let ret;
-    if (!marked.some((e) => e)) {
-        /* No marked boxes. Incorrect/blank. */
-        ret = new Array(ANS_MASK.length);
-        ret.fill(false);
-        ret.push(true);
-    } else {
-        /* Something was marked. */
-        ret = ANS_MASK.map((solution, i) => solution == marked[i]);
-        /* If all rubric items are marked false, push true at the end for
-         * Incorrect/blank, else push false. */
-        ret.push(ret.every((e) => !e));
-    }
-    return ret;
+  let ret;
+  if (!marked.some((e) => e)) {
+    /* No marked boxes. Incorrect/blank. */
+    ret = new Array(ANS_MASK.length);
+    ret.fill(false);
+    ret.push(true);
+  } else {
+    /* Something was marked. */
+    ret = ANS_MASK.map((solution, i) => solution == marked[i]);
+    /* If all rubric items are marked false, push true at the end for
+     * Incorrect/blank, else push false. */
+    ret.push(ret.every((e) => !e));
+  }
+  return ret;
 }
 
 // Run score() on console to see if it produces the correct grade.
@@ -57,14 +58,14 @@ function score() {
  * Grades the current submission based on the return value of score().
  */
 function grade() {
-    let scoredRubric = score();
-    let rubric = document.querySelectorAll('.rubricItem--key');
-    for (let i = 0; i < scoredRubric.length; i++) {
-        // Apply the item rubric[i] if scoredRubric[i] is true.
-        if (scoredRubric[i]) {
-            rubric[i].click();
-        }
+  let scoredRubric = score();
+  let rubric = document.querySelectorAll(".rubricItem--key");
+  for (let i = 0; i < scoredRubric.length; i++) {
+    // Apply the item rubric[i] if scoredRubric[i] is true.
+    if (scoredRubric[i]) {
+      rubric[i].click();
     }
+  }
 }
 
 // Run grade() on console to see if the correct choice is selected.
@@ -73,18 +74,25 @@ function grade() {
 // procedure.
 
 {
-    let href = window.location.href;
-    let nextGraded = document.querySelector('[title="Shortcut: Z"]')
-    setInterval(() => {
-        /* Wait for updated URL. */
-        if (href != window.location.href) {
-            href = window.location.href;
-            /* Grade the submission. */
-            grade();
-            /* Go to next ungraded. */
-            nextGraded.click();
-        }
-    }, 50);
-    grade();
-    nextGraded.click();
+  let href = window.location.href;
+  let nextGraded = document.querySelector('[title="Shortcut: Z"]');
+  let justGraded = false;
+  setInterval(() => {
+    /* Alternate between grading & clicking next to give some time to update the grade. */
+    if (justGraded) {
+      justGraded = false;
+      /* Go to next ungraded. */
+      nextGraded.click();
+    } else {
+      /* Wait for updated URL. */
+      if (href != window.location.href) {
+        href = window.location.href;
+        /* Grade the submission. */
+        grade();
+        justGraded = true;
+      }
+    }
+  }, 100);
+  grade();
+  nextGraded.click();
 }
