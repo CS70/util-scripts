@@ -123,7 +123,7 @@ class MatchResult:
 
 VariableMap = dict[tuple[str, str], cp.Variable | cp.Constant]
 
-
+# we want to order all ENDs before all STARTs; thankfully, "END" < "START"
 _TIMESTAMP_START = "START"
 _TIMESTAMP_END = "END"
 
@@ -238,7 +238,8 @@ def timestamps_from_slots(slots: list[Slot]) -> list[tuple[datetime, str, Slot]]
             timestamps.append((start_datetime, _TIMESTAMP_START, slot))
             timestamps.append((end_datetime, _TIMESTAMP_END, slot))
 
-    timestamps.sort(key=lambda t: t[0])
+    # sort by time first, but then by END < START
+    timestamps.sort(key=lambda t: (t[0], t[1]))
     return timestamps
 
 
@@ -275,7 +276,8 @@ def compute_cross_conflicts(slots1: list[Slot], slots2: list[Slot]):
         (*timestamp[:2], 1, *timestamp[2:])
         for timestamp in timestamps_from_slots(slots2)
     ]
-    timestamps = sorted([*timestamps1, *timestamps2], key=lambda t: t[0])
+    # sort by time first, but then by END < START
+    timestamps = sorted([*timestamps1, *timestamps2], key=lambda t: (t[0], t[1]))
 
     slots_by_id = [
         {slot.id: slot for slot in slots1},
@@ -289,9 +291,13 @@ def compute_cross_conflicts(slots1: list[Slot], slots2: list[Slot]):
         elif kind == _TIMESTAMP_START:
             # yield from the other set of ongoing slot ids
             if idx == 0:
-                yield from ((slot, slots_by_id[1][id]) for id in sorted(ongoing_slot_ids[1]))
+                yield from (
+                    (slot, slots_by_id[1][id]) for id in sorted(ongoing_slot_ids[1])
+                )
             elif idx == 1:
-                yield from ((slots_by_id[0][id], slot) for id in sorted(ongoing_slot_ids[0]))
+                yield from (
+                    (slots_by_id[0][id], slot) for id in sorted(ongoing_slot_ids[0])
+                )
 
             ongoing_slot_ids[idx].add(slot.id)
 
