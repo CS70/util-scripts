@@ -531,6 +531,12 @@ def get_matches(
     problem = cp.Problem(cp.Maximize(objective), constraints)
     problem.solve(verbose=verbose)
 
+    if problem.status != "optimal":
+        # could not solve problem; raise error
+        raise RuntimeError(
+            f"Optimization problem could not be solved: status {problem.status}"
+        )
+
     # fetch and store the final assignment
     final_section_assignment = {}
     final_oh_assignment = {}
