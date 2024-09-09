@@ -149,7 +149,7 @@ def linear_and(
     if not isinstance(var1, cp.Variable) or not isinstance(var2, cp.Variable):
         return var1 * var2, []
 
-    and_var = cp.Variable(name=f"{var1.name} AND {var2.name}", boolean=True)
+    and_var = cp.Variable(name=f"{var1}&{var2}", boolean=True)
 
     return and_var, [and_var <= var1, and_var <= var2, and_var >= var1 + var2 - 1]
 
@@ -165,7 +165,8 @@ def linear_or(
         - `constraints` are the additional constraints necessary for the optimization problem
     """
 
-    or_var = cp.Variable(boolean=True)
+    variable_names = [str(v) for v in variables]
+    or_var = cp.Variable(name=f"{'|'.join(variable_names)}", boolean=True)
     return or_var, [or_var >= var for var in variables]
 
 
@@ -255,7 +256,7 @@ def compute_conflicts(slots: list[Slot]):
         if kind == _TIMESTAMP_END:
             ongoing_slot_ids.remove(slot.id)
         elif kind == _TIMESTAMP_START:
-            yield from ((slots_by_id[id], slot) for id in ongoing_slot_ids)
+            yield from ((slots_by_id[id], slot) for id in sorted(ongoing_slot_ids))
             ongoing_slot_ids.add(slot.id)
 
 
@@ -288,9 +289,9 @@ def compute_cross_conflicts(slots1: list[Slot], slots2: list[Slot]):
         elif kind == _TIMESTAMP_START:
             # yield from the other set of ongoing slot ids
             if idx == 0:
-                yield from ((slot, slots_by_id[1][id]) for id in ongoing_slot_ids[1])
+                yield from ((slot, slots_by_id[1][id]) for id in sorted(ongoing_slot_ids[1]))
             elif idx == 1:
-                yield from ((slots_by_id[0][id], slot) for id in ongoing_slot_ids[0])
+                yield from ((slots_by_id[0][id], slot) for id in sorted(ongoing_slot_ids[0]))
 
             ongoing_slot_ids[idx].add(slot.id)
 
@@ -424,7 +425,7 @@ def get_cross_constraints(
     oh_user_ids = set(user.id for user in oh_users)
 
     # only look at intersection of two user groups
-    applicable_users = section_user_ids.intersection(oh_user_ids)
+    applicable_users = sorted(section_user_ids.intersection(oh_user_ids))
 
     for section_slot, oh_slot in compute_cross_conflicts(section_slots, oh_slots):
         for user_id in applicable_users:
@@ -483,6 +484,7 @@ def get_matches(
     # config
     config: Optional[MatcherConfig] = None,
     verbose: bool = False,
+    solver: str = cp.SCIPY,
 ) -> MatchResult:
     if config is None:
         # use default config if not provided
@@ -529,7 +531,7 @@ def get_matches(
 
     # set up and solve optimization problem
     problem = cp.Problem(cp.Maximize(objective), constraints)
-    problem.solve(verbose=verbose)
+    problem.solve(verbose=verbose, solver=solver)
 
     if problem.status != "optimal":
         # could not solve problem; raise error

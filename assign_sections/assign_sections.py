@@ -1,10 +1,6 @@
-import csv
-import datetime
-import json
-import os
 import random
-from string import ascii_uppercase
 
+import cvxpy as cp
 import matplotlib
 import matplotlib.colors
 import numpy as np
@@ -12,14 +8,28 @@ from rich.console import Console
 from rich.table import Table, box
 from rich.theme import Theme
 
-from matcher import (
-    MatcherConfig,
+from matcher_utils.format import format_days, format_slot, format_time
+from matcher_utils.input_config import (
+    ConfigKeys,
+    PreferencesHeader,
+    PrintColors,
+    PrintFormat,
+)
+from matcher_utils.matcher import (
     Preference,
     Slot,
     User,
     compute_slot_datetime,
     get_matches,
 )
+from matcher_utils.parse import (
+    parse_config,
+    parse_days,
+    parse_matcher_config,
+    parse_preferences,
+    parse_time,
+)
+from matcher_utils.types import SlotConfigMap, UserConfigMap, UserPreferenceMap
 
 console = Console(theme=Theme({"repr.number": ""}))
 
@@ -41,226 +51,25 @@ COLOR_MAP_DISCRETE = {
 }
 
 
-class PreferencesHeader:
-    """Header values for the preferences spreadsheet."""
-
-    ID = "ID"
-    LOCATION = "Location"
-    DAY = "Day"
-    START_TIME = "Start Time"
-    END_TIME = "End Time"
-
-    ALL = [ID, LOCATION, DAY, START_TIME, END_TIME]
-
-
-class ConfigKeys:
-    """Keys for the config file."""
-
-    USERS = "users"
-    SLOTS = "slots"
-
-    # subkeys under SLOTS
-    MIN_USERS = "min_users"
-    MAX_USERS = "max_users"
-
-    # subkeys under USERS
-    MIN_SLOTS = "min_slots"
-    MAX_SLOTS = "max_slots"
-
-
-class PrintFormat:
-    """Possible options for the print output format"""
-
-    TABLE = "table"
-    CSV = "csv"
-
-
-class PrintColors:
-    """Possible options for the print color format"""
-
-    DISCRETE = "discrete"
-    GRADIENT = "gradient"
-
-
-def compute_color(pref, min_pref, max_pref, print_colors: str = PrintColors.DISCRETE):
+def compute_color(
+    pref, min_pref, max_pref, print_colors: str = PrintColors.DISCRETE
+) -> str:
     """
     Compute the associated `rich` color style based on a preference and a preference range.
     """
     if print_colors == PrintColors.DISCRETE:
         if pref in COLOR_MAP_DISCRETE:
             return COLOR_MAP_DISCRETE[pref]
-        else:
-            return "normal"
-    else:
-        scaled_pref = (pref - min_pref) / (max_pref - min_pref)
-        color = COLOR_MAP_GRADIENT(scaled_pref)
-        hex_color = matplotlib.colors.rgb2hex(color)
-        hsv_color = matplotlib.colors.rgb_to_hsv(color[:3])
+        return "normal"
 
-        text_color = "white" if hsv_color[2] < 0.5 else "black"
-        return f"{text_color} on {hex_color}"
+    # for gradients, we need to compute the color from the color map
+    scaled_pref = (pref - min_pref) / (max_pref - min_pref)
+    color = COLOR_MAP_GRADIENT(scaled_pref)
+    hex_color = matplotlib.colors.rgb2hex(color)
+    hsv_color = matplotlib.colors.rgb_to_hsv(color[:3])
 
-
-def format_slot(slot: Slot):
-    """
-    Convert a discussion info dict into a human-readable string.
-    """
-    start_str = format_time(slot.start_time)
-    end_str = format_time(slot.end_time)
-    return f"{format_days(slot.days)} {start_str}-{end_str} @ {slot.location}"
-
-
-def parse_preferences(csv_file: str, slot_id_prefix: str = ""):
-    """
-    Read preferences from a CSV file.
-    """
-    if not csv_file or not os.path.isfile(csv_file):
-        return {}, {}
-
-    # read the first row first
-    with open(csv_file, "r", encoding="utf-8") as f:
-        first_row = f.readline()
-
-    user_names = [
-        header.strip()
-        for header in first_row.split(",")
-        if header.strip() not in PreferencesHeader.ALL
-    ]
-
-    fieldnames = [
-        *PreferencesHeader.ALL,
-        *user_names,
-    ]
-
-    # initialize section preference map
-    preference_map = {name: {} for name in user_names}
-    info = {}
-
-    with open(csv_file, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f, fieldnames=fieldnames)
-
-        first_row = next(reader)
-        for key, val in first_row.items():
-            assert key == val, f"Expected {key}, got {val} in header"
-
-        for row in reader:
-            slot_id = slot_id_prefix + row[PreferencesHeader.ID]
-            for name in user_names:
-                preference_map[name][slot_id] = int(row[name])
-
-            cur_info = {}
-            for key in PreferencesHeader.ALL:
-                cur_info[key] = row[key]
-            info[slot_id] = cur_info
-
-    return preference_map, info
-
-
-def parse_config(config_file: str, slot_id_prefix: str = ""):
-    """
-    Parse a config JSON file for user/slot counts.
-    """
-    if not config_file or not os.path.isfile(config_file):
-        return {}, {}
-
-    with open(config_file, "r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    user_counts = config[ConfigKeys.USERS]
-    slot_counts = config[ConfigKeys.SLOTS]
-
-    if slot_id_prefix:
-        slot_counts = {slot_id_prefix + key: val for key, val in slot_counts.items()}
-
-    return user_counts, slot_counts
-
-
-def parse_matcher_config(config_file: str):
-    """
-    Parse a config JSON file for the matcher.
-    """
-    if not config_file or not os.path.isfile(config_file):
-        return None
-
-    with open(config_file, "r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    return MatcherConfig.from_dict(config)
-
-
-def parse_time(time_str: str):
-    """
-    Parse a time string into a `datetime.time` object.
-    """
-    return datetime.time.fromisoformat(time_str)
-
-
-def format_time(time: datetime.time):
-    """
-    Format a `datetime.time` object into a time string.
-    """
-    if time.minute == 0:
-        return time.strftime("%I%p")
-    return time.strftime("%I:%M%p")
-
-
-def parse_days(day_str: str):
-    """
-    Parse the days from a day string.
-    Assumes that each day begins with an uppercase letter, followed by lowercase letters,
-    where Tuesday and Thursday are differentiated by at least the second letter,
-    and Saturday and Sunday are similarly differentiated by at least the second letter.
-
-    Result is a list of day indices, where Monday = 0, and Sunday = 6
-
-    Examples:
-      - "TuTh"
-      - "WF"
-      - "Monday, Wednesday"
-      - "TuF"
-    """
-    day_map = {
-        "M": 0,
-        "Tu": 1,
-        "W": 2,
-        "Th": 3,
-        "F": 4,
-        "Sa": 5,
-        "Su": 6,
-    }
-
-    days = []
-    for idx, c in enumerate(day_str):
-        # only look at uppercase letters
-        if c not in ascii_uppercase:
-            continue
-
-        if c in day_map:
-            # one letter day
-            days.append(day_map[c])
-        else:
-            assert (
-                idx < len(day_str) - 1
-            ), "More than one letter required to uniquely identify the day, but reached EOS"
-            next_char = day_str[idx + 1]
-            two_letters = f"{c}{next_char}"
-
-            if two_letters in day_map:
-                days.append(day_map[two_letters])
-            else:
-                raise ValueError(
-                    f"Unable to identify day starting with '{two_letters}'"
-                )
-
-    return days
-
-
-def format_days(day_list: list[int]):
-    """
-    Formats a list of day integers (where Monday = 0, Sunday = 6) into a string.
-    """
-    days = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
-    return "".join(days[day] for day in day_list)
+    text_color = "white" if hsv_color[2] < 0.5 else "black"
+    return f"{text_color} on {hex_color}"
 
 
 def print_assignment_by_user(
@@ -271,7 +80,7 @@ def print_assignment_by_user(
     print_format: str = PrintFormat.TABLE,
     print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
-):
+) -> None:
     """
     Given a map from user_id (name) to the list of assigned slots,
     prints the slots assigned to each user.
@@ -339,7 +148,7 @@ def print_assignment_by_slot(
     print_format: str = PrintFormat.TABLE,
     print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
-):
+) -> None:
     """
     Given a map from user_id (name) to the list of assigned slots,
     prints the users assigned to each slot.
@@ -422,12 +231,12 @@ def print_assignment_by_slot(
 
 
 def validate_inputs(
-    section_preference_map: dict[str, dict],
-    section_counts: dict[str, dict],
-    section_slot_counts: dict[str, dict],
-    oh_preference_map: dict[str, dict],
-    oh_counts: dict[str, dict],
-    oh_slot_counts: dict[str, dict],
+    section_preference_map: UserPreferenceMap,
+    section_counts: UserConfigMap,
+    section_slot_counts: SlotConfigMap,
+    oh_preference_map: UserPreferenceMap,
+    oh_counts: UserConfigMap,
+    oh_slot_counts: SlotConfigMap,
 ):
     """
     Validate all inputs, after parsing.
@@ -487,6 +296,7 @@ def run_matcher(
     matcher_config_file: str,
     # options
     verbose: bool = False,
+    solver: str = cp.SCIPY,
     print_format: str = PrintFormat.TABLE,
     print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
@@ -617,6 +427,7 @@ def run_matcher(
         oh_preferences,
         config=matcher_config,
         verbose=verbose,
+        solver=solver,
     )
 
     print("cost", result.cost)
@@ -715,6 +526,13 @@ if __name__ == "__main__":
         "--matcher-config", help="Config file for running the matcher", default=""
     )
 
+    options_group.add_argument(
+        "--solver",
+        default=cp.SCIPY,
+        choices=cp.installed_solvers(),
+        help="Solver to use for the ILP optimization problem",
+    )
+
     args = parser.parse_args()
 
     if args.seed:
@@ -734,6 +552,7 @@ if __name__ == "__main__":
         args.oh_config,
         args.matcher_config,
         verbose=args.verbose,
+        solver=args.solver,
         print_format=args.format,
         print_colors=args.colors,
         print_empty=args.show_empty,
