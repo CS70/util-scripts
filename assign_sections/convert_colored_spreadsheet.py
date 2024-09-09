@@ -109,6 +109,12 @@ def load_excel(
     to ensure unique IDs for each possible discussion slot.
     """
     workbook = load_workbook(filename=filename)
+
+    if sheet_name not in workbook:
+        # if the sheet name is not found, return an empty output
+        print(f"Warning: sheet {sheet_name} not found; skipping output")
+        return ({}, {})
+
     worksheet = workbook[sheet_name]
 
     # map from type to column number
@@ -240,6 +246,10 @@ def load_num_sections(filename: str, sheet_name: str) -> SectionCountMap:
     Load the number of sections that we should match per user.
     """
     workbook = load_workbook(filename=filename)
+
+    if sheet_name not in workbook:
+        print(f"Warning: {sheet_name} not found; skipping output")
+        return {}
     worksheet = workbook[sheet_name]
 
     # scan columns for names
@@ -307,6 +317,10 @@ def convert_sheet(
     # parse sheet
     info_map, preferences = load_excel(spreadsheet_filename, preferences_sheet_name)
     num_slots_map = load_num_sections(spreadsheet_filename, count_sheet_name)
+
+    if not info_map or not preferences or not num_slots_map:
+        # do nothing if any one of the above is not found
+        return
 
     # write preference CSV
     with open(csv_output_filename, "w", encoding="utf-8") as f:

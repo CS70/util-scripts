@@ -3,7 +3,6 @@ import datetime
 import json
 import os
 import random
-from enum import StrEnum
 from string import ascii_uppercase
 
 import matplotlib
@@ -69,19 +68,21 @@ class ConfigKeys:
     MAX_SLOTS = "max_slots"
 
 
-class PrintFormat(StrEnum):
+class PrintFormat:
+    """Possible options for the print output format"""
+
     TABLE = "table"
     CSV = "csv"
 
 
-class PrintColors(StrEnum):
+class PrintColors:
+    """Possible options for the print color format"""
+
     DISCRETE = "discrete"
     GRADIENT = "gradient"
 
 
-def compute_color(
-    pref, min_pref, max_pref, print_colors: PrintColors = PrintColors.DISCRETE
-):
+def compute_color(pref, min_pref, max_pref, print_colors: str = PrintColors.DISCRETE):
     """
     Compute the associated `rich` color style based on a preference and a preference range.
     """
@@ -199,8 +200,8 @@ def format_time(time: datetime.time):
     Format a `datetime.time` object into a time string.
     """
     if time.minute == 0:
-        return time.strftime("%-I%p")
-    return time.strftime("%-I:%M%p")
+        return time.strftime("%I%p")
+    return time.strftime("%I:%M%p")
 
 
 def parse_days(day_str: str):
@@ -267,8 +268,8 @@ def print_assignment_by_user(
     users: list[User],
     preference_map: dict[str, dict[str, int]],
     title: str = "",
-    print_format: PrintFormat = PrintFormat.TABLE,
-    print_colors: PrintColors = PrintColors.DISCRETE,
+    print_format: str = PrintFormat.TABLE,
+    print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
 ):
     """
@@ -335,8 +336,8 @@ def print_assignment_by_slot(
     slots: list[Slot],
     preference_map: dict[str, dict[str, int]],
     title: str = "",
-    print_format: PrintFormat = PrintFormat.TABLE,
-    print_colors: PrintColors = PrintColors.DISCRETE,
+    print_format: str = PrintFormat.TABLE,
+    print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
 ):
     """
@@ -420,6 +421,64 @@ def print_assignment_by_slot(
             console.print(",".join(table_row + [""] * (num_columns - len(table_row))))
 
 
+def validate_inputs(
+    section_preference_map: dict[str, dict],
+    section_counts: dict[str, dict],
+    section_slot_counts: dict[str, dict],
+    oh_preference_map: dict[str, dict],
+    oh_counts: dict[str, dict],
+    oh_slot_counts: dict[str, dict],
+):
+    """
+    Validate all inputs, after parsing.
+
+    Raises an error if any validation errors occur,
+    otherwise does nothing.
+    """
+
+    # ensure that the names in all files match up, if provided
+    if section_preference_map:
+        assert set(section_counts.keys()) == set(
+            section_preference_map.keys()
+        ), "Section config and preference files should share the same user names"
+    if oh_preference_map:
+        assert set(oh_counts.keys()) == set(
+            oh_preference_map.keys()
+        ), "OH config and preference files should share the same user names"
+
+    # ensure that min/max counts are feasible
+    for user_counts, slot_counts, label in (
+        (section_counts, section_slot_counts, "section"),
+        (oh_counts, oh_slot_counts, "oh"),
+    ):
+        total_min_user_counts = sum(
+            count["min_slots"] for count in user_counts.values()
+        )
+        total_max_user_counts = sum(
+            count["max_slots"] for count in user_counts.values()
+        )
+
+        total_min_slot_counts = sum(
+            count["min_users"] for count in slot_counts.values()
+        )
+        total_max_slot_counts = sum(
+            count["max_users"] for count in slot_counts.values()
+        )
+
+        assert total_min_user_counts <= total_max_slot_counts, (
+            f"[{label}]"
+            f" Minimum total count for users ({total_min_user_counts})"
+            f" must be at most the maximum total count for slots ({total_max_slot_counts});"
+            " either increase the maximums for each slot, or decrease the minimums for each user"
+        )
+        assert total_min_slot_counts <= total_max_user_counts, (
+            f"[{label}]"
+            f" Minimum total count for slots ({total_min_slot_counts})"
+            f" must be at most the maximum total count for users ({total_max_user_counts});"
+            " either increase the maximums for each user, or decrease the minimums for each slot"
+        )
+
+
 def run_matcher(
     section_preferences_file: str,
     section_config_file: str,
@@ -428,8 +487,8 @@ def run_matcher(
     matcher_config_file: str,
     # options
     verbose: bool = False,
-    print_format: PrintFormat = PrintFormat.TABLE,
-    print_colors: PrintColors = PrintColors.DISCRETE,
+    print_format: str = PrintFormat.TABLE,
+    print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
 ):
     """
@@ -469,16 +528,14 @@ def run_matcher(
 
     matcher_config = parse_matcher_config(matcher_config_file)
 
-    # ensure that the names in all files match up, if provided
-
-    if section_preference_map:
-        assert set(section_counts.keys()) == set(
-            section_preference_map.keys()
-        ), "Section config and preference files should share the same user names"
-    if oh_preference_map:
-        assert set(oh_counts.keys()) == set(
-            oh_preference_map.keys()
-        ), "OH config and preference files should share the same user names"
+    validate_inputs(
+        section_preference_map,
+        section_counts,
+        section_slot_counts,
+        oh_preference_map,
+        oh_counts,
+        oh_slot_counts,
+    )
 
     # format input values
     section_users = [
@@ -645,8 +702,8 @@ if __name__ == "__main__":
     )
     options_group.add_argument(
         "--colors",
-        choices=["discrete", "gradient"],
-        default="discrete",
+        choices=[PrintColors.DISCRETE, PrintColors.GRADIENT],
+        default=PrintColors.DISCRETE,
         help="Print color format; use 'discrete' if choosing from (0, 1, 3, 5), and 'gradient' otherwise.",
     )
     options_group.add_argument(

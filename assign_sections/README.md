@@ -4,6 +4,10 @@ ILP algorithm to assign TAs/course staff to discussion and OH slots.
 
 ## Usage
 
+The scripts here require the usage of Python 3.10+, but Python 3.11 is best. Dependencies can be found in `requirements.txt`, and can be installed vis `pip install -r requirements.txt`.
+
+Most of the information about the script parameters can be found by passing `-h` when runnning it, but below has more detailed explanations for the main options.
+
 ### Generating input files
 
 #### Via colored spreadsheet
@@ -232,11 +236,13 @@ However, we must implement this `AND` operator in a linear fashion---a naive sol
 
 To remedy this, we can fairly easily linearize the binary `AND` operator; introducing a new binary variable $y_{u,s_1,s_2}$, we can add constraints such that:
 
-$$\begin{align*}
+$$
+\begin{align*}
 y_{u,s_1,s_2} &\le x_{u,s_1} \\
 y_{u,s_1,s_2} &\le x_{u,s_2} \\
 y_{u,s_1,s_2} &\ge x_{u,s_1} + x_{u,s_2} - 1
-\end{align*}$$
+\end{align*}
+$$
 
 Now, $y_{u,s_1,s_2}$ can be used to implement $\mathrm{AND}(x_{u,s_1}, x_{u,s_2})$.
 
