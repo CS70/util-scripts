@@ -142,7 +142,7 @@ python3 assign_sections.py \
 
 (Here the default input filenames are used, but they can be swapped out with any others.) The section/OH preferences/config files should be self explanatory, but `--matcher-config` can optionally be provided if you'd like to modify the matcher algorithm itself.
 
-In addition, a couple other options for the script are available, and can be listed by passing the `-h` flag to the script.
+In addition, a couple other options for the script are available, and can be listed by passing the `-h` flag to the script. Most notably, the `-v`/`--verbose` flag can be very helpful to debug the optimization process.
 
 ## Implementation
 
