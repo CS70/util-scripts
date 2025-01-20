@@ -1,4 +1,6 @@
 import random
+from pprint import pprint
+from typing import Optional
 
 import cvxpy as cp
 import matplotlib
@@ -16,6 +18,7 @@ from matcher_utils.input_config import (
     PrintFormat,
 )
 from matcher_utils.matcher import (
+    Assignment,
     Preference,
     Slot,
     User,
@@ -26,10 +29,17 @@ from matcher_utils.parse import (
     parse_config,
     parse_days,
     parse_matcher_config,
+    parse_oh_preset_assignment,
     parse_preferences,
+    parse_section_preset_assignment,
     parse_time,
 )
-from matcher_utils.types import SlotConfigMap, UserConfigMap, UserPreferenceMap
+from matcher_utils.types import (
+    PresetAssignmentInfo,
+    SlotConfigMap,
+    UserConfigMap,
+    UserPreferenceMap,
+)
 
 console = Console(theme=Theme({"repr.number": ""}))
 
@@ -230,6 +240,73 @@ def print_assignment_by_slot(
             console.print(",".join(table_row + [""] * (num_columns - len(table_row))))
 
 
+def generate_preset_assignment(
+    preset_assignment_info: list[PresetAssignmentInfo],
+    users: list[User],
+    slots: list[Slot],
+    force_unmatched: bool = False,
+) -> Assignment:
+    """
+    Generate a dictionary mapping user/slot IDs to booleans,
+    representing the given preset assignment.
+
+    If the `force_unmatched` option is True,
+    all user/slot pairs not given in the preset assignment are forcefully unmatched.
+    If the `force_unmatched` option is False,
+    only the given assignments are added as constraints,
+    leaving the possibility for additional assignments as well.
+    """
+    if not preset_assignment_info:
+        # if no assignment info is given, return an empty assignment
+        return {}
+
+    users_by_name = {user.name: user for user in users}
+    slots_by_time_location = {
+        (
+            format_days(slot.days),
+            slot.start_time.isoformat(),
+            slot.end_time.isoformat(),
+            slot.location,
+        ): slot
+        for slot in slots
+    }
+
+    assignment = {}
+    for info in preset_assignment_info:
+        cur_user = users_by_name.get(info.name, None)
+        if cur_user is None:
+            raise ValueError(
+                f"User with name '{info.name}' not found in preset assignment"
+            )
+
+        formatted_days = format_days(info.days)
+        cur_slot = slots_by_time_location.get(
+            (
+                format_days(info.days),
+                info.start_time.isoformat(),
+                info.end_time.isoformat(),
+                info.location,
+            ),
+            None,
+        )
+        if cur_slot is None:
+            raise ValueError(
+                f"Slot '{formatted_days} {info.start_time}—{info.end_time} @ {info.location}'"
+                " not found in preset assignment"
+            )
+
+        assignment[(cur_user.id, cur_slot.id)] = True
+
+    if force_unmatched:
+        # set all other pairs to False
+        for user in users:
+            for slot in slots:
+                if (user.id, slot.id) not in assignment:
+                    assignment[(user.id, slot.id)] = False
+
+    return assignment
+
+
 def validate_inputs(
     section_preference_map: UserPreferenceMap,
     section_counts: UserConfigMap,
@@ -289,17 +366,21 @@ def validate_inputs(
 
 
 def run_matcher(
-    section_preferences_file: str,
-    section_config_file: str,
-    oh_preferences_file: str,
-    oh_config_file: str,
-    matcher_config_file: str,
+    section_preferences_file: Optional[str],
+    section_config_file: Optional[str],
+    oh_preferences_file: Optional[str],
+    oh_config_file: Optional[str],
+    matcher_config_file: Optional[str],
+    # preset assignments
+    section_preset_assignment_file: Optional[str],
+    oh_preset_assignment_file: Optional[str],
     # options
     verbose: bool = False,
     solver: str = cp.SCIPY,
     print_format: str = PrintFormat.TABLE,
     print_colors: str = PrintColors.DISCRETE,
     print_empty: bool = False,
+    preset_force_unmatched: bool = False,
 ):
     """
     Run the matcher for discussions and OH on a given set of preference and config files.
@@ -337,6 +418,11 @@ def run_matcher(
     oh_counts, oh_slot_counts = parse_config(oh_config_file, slot_id_prefix="B")
 
     matcher_config = parse_matcher_config(matcher_config_file)
+
+    section_preset_assignment_info = parse_section_preset_assignment(
+        section_preset_assignment_file
+    )
+    oh_preset_assignment_info = parse_oh_preset_assignment(oh_preset_assignment_file)
 
     validate_inputs(
         section_preference_map,
@@ -403,6 +489,19 @@ def run_matcher(
         for slot_id, value in preferences.items()
     ]
 
+    section_preset_assignment = generate_preset_assignment(
+        section_preset_assignment_info,
+        section_users,
+        section_slots,
+        force_unmatched=preset_force_unmatched,
+    )
+    oh_preset_assignment = generate_preset_assignment(
+        oh_preset_assignment_info,
+        oh_users,
+        oh_slots,
+        force_unmatched=preset_force_unmatched,
+    )
+
     # sort then shuffle, to avoid any discrepancies
     section_users.sort(key=lambda u: u.id)
     section_slots.sort(key=lambda s: s.id)
@@ -425,6 +524,8 @@ def run_matcher(
         oh_users,
         oh_slots,
         oh_preferences,
+        section_preset_assignment=section_preset_assignment,
+        oh_preset_assignment=oh_preset_assignment,
         config=matcher_config,
         verbose=verbose,
         solver=solver,
@@ -499,6 +600,22 @@ if __name__ == "__main__":
         "--oh-preferences", help="Preferences CSV file for OH", default=""
     )
     file_group.add_argument("--oh-config", help="Configuration for OH", default="")
+    file_group.add_argument(
+        "--section-preset-assignment",
+        help=(
+            "CSV file for a preset section assignment;"
+            " taken into account when computing OH assignments"
+        ),
+        default="",
+    )
+    file_group.add_argument(
+        "--oh-preset-assignment",
+        help=(
+            "CSV file for a preset OH assignment;"
+            " taken into account when computing section assignments"
+        ),
+        default="",
+    )
 
     options_group = parser.add_argument_group("Options")
     options_group.add_argument("--seed", "-s", help="Random seed")
@@ -524,6 +641,11 @@ if __name__ == "__main__":
     )
     options_group.add_argument(
         "--matcher-config", help="Config file for running the matcher", default=""
+    )
+    options_group.add_argument(
+        "--preset-assignment-force-unmatched",
+        action="store_true",
+        help="When a preset assignment is passed in, ensure all other pairs of users/slots are forcefully unmatched.",
     )
 
     options_group.add_argument(
@@ -551,9 +673,12 @@ if __name__ == "__main__":
         args.oh_preferences,
         args.oh_config,
         args.matcher_config,
+        args.section_preset_assignment,
+        args.oh_preset_assignment,
         verbose=args.verbose,
         solver=args.solver,
         print_format=args.format,
         print_colors=args.colors,
         print_empty=args.show_empty,
+        preset_force_unmatched=args.preset_assignment_force_unmatched,
     )

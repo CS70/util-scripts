@@ -122,6 +122,7 @@ class MatchResult:
 
 
 VariableMap = dict[tuple[str, str], cp.Variable | cp.Constant]
+Assignment = dict[tuple[str, str], bool]
 
 # we want to order all ENDs before all STARTs; thankfully, "END" < "START"
 _TIMESTAMP_START = "START"
@@ -478,6 +479,19 @@ def get_global_consecutive_bonus(
     return config.global_consecutive_bonus_weight * bonus, constraints
 
 
+def get_preset_assignment_constraints(
+    variable_map: VariableMap, enforced_assignment: dict[tuple[str, str], bool]
+):
+    """
+    Format constraints for a given prior assignment,
+    enforcing the prior assignment in the optimization problem.
+    """
+    return [
+        variable_map[user_id, slot_id] == assigned
+        for (user_id, slot_id), assigned in enforced_assignment.items()
+    ]
+
+
 def get_matches(
     # section parameters
     section_users: list[User] = [],
@@ -487,6 +501,9 @@ def get_matches(
     oh_users: list[User] = [],
     oh_slots: list[Slot] = [],
     oh_preferences: list[Preference] = [],
+    # preset assignments
+    section_preset_assignment: Optional[Assignment] = None,
+    oh_preset_assignment: Optional[Assignment] = None,
     # config
     config: Optional[MatcherConfig] = None,
     verbose: bool = False,
@@ -512,12 +529,26 @@ def get_matches(
         oh_assignment,
     )
 
+    # enforce preset assignments
+    section_preset_assignment_constraints = get_preset_assignment_constraints(
+        section_assignment, section_preset_assignment or {}
+    )
+    oh_preset_assignment_constraints = get_preset_assignment_constraints(
+        oh_assignment, oh_preset_assignment or {}
+    )
+
     # weighting between section and OH objectives
     objective = (
         config.section_bias * section_objective
         + (1 - config.section_bias) * oh_objective
     )
-    constraints = [*section_constraints, *oh_constraints, *cross_constraints]
+    constraints = [
+        *section_constraints,
+        *oh_constraints,
+        *cross_constraints,
+        *section_preset_assignment_constraints,
+        *oh_preset_assignment_constraints,
+    ]
 
     # additions to the objective/constraints
 

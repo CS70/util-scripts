@@ -144,6 +144,8 @@ python3 assign_sections.py \
 
 In addition, a couple other options for the script are available, and can be listed by passing the `-h` flag to the script. Most notably, the `-v`/`--verbose` flag can be very helpful to debug the optimization process.
 
+One particular feature to note is the ability to fill in section or OH preferences, taking into account prior assignments. This is especially useful if (for example) discussions were matched first, and OH are matched later; in this case, the discussion assignment can be passed in as a parameter (through `--section-preset-assignment`), and all OH assignments will take the discussion assignments into account. By default, this will not enforce that all other user/slot pairs are unmatched, but the `--preset-assignment-force-unmatched` parameter can additionally enforce that all other user/slot pairs stay unmatched.
+
 ## Implementation
 
 ### Excel Files

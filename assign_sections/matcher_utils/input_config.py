@@ -25,6 +25,27 @@ class ConfigKeys:
     MAX_SLOTS = "max_slots"
 
 
+class SectionPresetHeader:
+    """Header values for the section preset assignment CSV."""
+
+    TA = "ta"
+    TA2 = "second_ta"
+    DAY = "shortday"
+    TIME = "time"
+    TYPE = "type"
+    LOCATION = "location"
+
+
+class OHPresetHeader:
+    """Header values for the OH preset assignment CSV."""
+
+    NAME_PREFIX = "name"
+    DAY = "day"
+    START_TIME = "start_time"
+    END_TIME = "end_time"
+    LOCATION = "location"
+
+
 class PrintFormat:
     """Possible options for the print output format"""
 
